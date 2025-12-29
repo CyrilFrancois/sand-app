@@ -1,0 +1,22 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: sand-backend
+    env_file: .env
+    ports:
+      - "${BACKEND_PORT}:8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: sand-frontend
+    env_file: .env
+    environment:
+      - VITE_BACKEND_URL=http://backend:8000
+    ports:
+      - "${FRONTEND_PORT}:5173"
+    depends_on:
+      - backend
+    restart: unless-stopped
