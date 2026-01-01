@@ -1,9 +1,10 @@
 fastapi
 uvicorn
-requests
-pillow
-opencv-python-headless
-shapely
-trimesh
-numpy
 python-multipart
+openai
+requests
+opencv-python-headless
+numpy
+trimesh
+shapely
+Pillow

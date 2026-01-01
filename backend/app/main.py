@@ -3,8 +3,8 @@ import uuid
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from services.image_pipeline import generate_line_art
-from services.svg_to_stl import svg_to_stl
+from app.services.svg_to_stl import svg_to_stl
+from app.services.image_pipeline import generate_line_art
 
 app = FastAPI(
     title="Sand Art Backend",

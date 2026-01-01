@@ -3,7 +3,7 @@ import io
 from PIL import Image
 import numpy as np
 import cv2
-from services.gpt_client import generate_outline_images
+from app.services.gpt_client import generate_outline_images
 
 
 async def generate_line_art(upload, variants):

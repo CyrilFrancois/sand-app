@@ -1,0 +1,1 @@
+Transforme cette photo en dessin de coloriage. Il faut que tu détourne la forme de la personne, transforme en zone de couleur, avec un épais trait différenciant les zones, en respectant les zones d'ombrage pour y faire apparaître les mêmes teintes avec une luminosité. En colorant déjà les zones. Pour proposer un coloriage fini.
