@@ -1,10 +1,11 @@
 import tempfile
 import uuid
 import logging
+import base64
 from fastapi import FastAPI, UploadFile, File, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from backend.app.services.generate_stl_from_image import generate_stl_from_image
+from app.services.generate_stl_from_image import generate_stl_from_image
 from app.services.image_pipeline import generate_line_art
 
 # Setup basic logging to see it in Docker logs
@@ -34,27 +35,32 @@ async def generate_variants(file: UploadFile = File(...), count: int = Form(...)
 
 @app.post("/generate-stl")
 async def generate_model(data: dict = Body(...)):
-    variant_url = data.get("image_url")
+    variant_url = data.get("image_url")  # This is the Base64 string
     settings = data.get("settings", {})
     
-    logger.info(f"--- STEP 2: Building STL for {variant_url} ---")
-    logger.info(f"Settings: {settings}")
-
-    # Create temporary file for STL
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".stl")
+    logger.info(f"--- STEP 2: Building STL for variant ---")
     
-    # Process the 3D conversion
-    # Note: generate_stl_from_image needs to be able to handle the variant_url/data
-    generate_stl_from_image(
-        variant_url, 
-        tmp.name, 
-        settings.get("wallHeight", 3.0), 
-        settings.get("wallThickness", 0.8), 
-        settings.get("basePlate", True)
-    )
+    # 1. Decode Base64 string to raw bytes
+    try:
+        if "," in variant_url:
+            # Strip metadata (e.g., 'data:image/png;base64,') if present
+            header, encoded = variant_url.split(",", 1)
+            image_bytes = base64.b64decode(encoded)
+        else:
+            image_bytes = base64.b64decode(variant_url)
+    except Exception as e:
+        logger.error(f"Base64 decoding failed: {e}")
+        return JSONResponse(status_code=400, content={"error": "Invalid image data"})
 
-    logger.info(f"--- STEP 2 COMPLETE: STL generated at {tmp.name} ---")
-    return FileResponse(tmp.name, filename=f"sand-art-{uuid.uuid4().hex[:6]}.stl")
+    # 2. Call the service with exactly TWO arguments
+    # We pass image_bytes and the whole settings dictionary
+    stl_path = generate_stl_from_image(image_bytes, settings)
+
+    if stl_path and os.path.exists(stl_path):
+        logger.info(f"--- STEP 2 COMPLETE: STL generated at {stl_path} ---")
+        return FileResponse(stl_path, filename=f"sand-art-{uuid.uuid4().hex[:6]}.stl")
+    
+    return JSONResponse(status_code=500, content={"error": "STL generation failed"})
 
 @app.get("/health")
 def health():

@@ -2,12 +2,34 @@ import os
 import io
 import base64
 import requests
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageOps
 from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def post_process_image(img_data):
+    # Load the image from bytes
+    img = Image.open(io.BytesIO(img_data)).convert("L") # Convert to Grayscale
+    
+    # 1. Increase Contrast significantly
+    enhancer = ImageEnhance.Contrast(img)
+    img = enhancer.enhance(2.0) 
+    
+    # 2. Thresholding: Everything darker than 140 becomes 0 (Black)
+    # Everything lighter becomes 255 (White)
+    # Adjust 140 to be higher if you want more lines, lower for fewer
+    fn = lambda x : 255 if x > 140 else 0
+    img = img.point(fn, mode='1') # Mode '1' is 1-bit pixels (Black/White)
+    
+    # Convert back to RGB so it displays nicely in browsers
+    img = img.convert("RGB")
+    
+    # Save back to bytes
+    byte_io = io.BytesIO()
+    img.save(byte_io, format='PNG')
+    return byte_io.getvalue()
 
 def generate_outline_images(image_bytes, variants_count):
     # Load image just to ensure it's a valid format for OpenAI (PNG/JPG/WEBP)
@@ -51,7 +73,9 @@ A clean, printable line drawing that looks like a coloring book page and can be 
             if url:
                 img_response = requests.get(url)
                 if img_response.status_code == 200:
-                    encoded_str = base64.b64encode(img_response.content).decode('utf-8')
+                    # Black and white
+                    clean_bytes = post_process_image(img_response.content)
+                    encoded_str = base64.b64encode(clean_bytes).decode('utf-8')
                     outlines_b64.append(encoded_str)
             elif hasattr(data, 'b64_json'):
                 outlines_b64.append(data.b64_json)
