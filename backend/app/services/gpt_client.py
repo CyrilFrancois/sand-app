@@ -1,39 +1,54 @@
+import os
+import io
 import base64
 import requests
-from config import OPENAI_API_KEY
+from PIL import Image
+from openai import OpenAI
+from dotenv import load_dotenv
 
-API_URL = "https://api.openai.com/v1/images/generations"
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+def generate_outline_images(image_bytes, variants_count):
+    # 1. Prepare the image (Square PNG)
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    width, height = img.size
+    
+    # We use 'side' to define the square dimensions
+    side = min(width, height)
+    left = (width - side) // 2
+    top = (height - side) // 2
+    
+    # FIXED: Changed 'size' to 'side' below
+    img = img.crop((left, top, left + side, top + side)).resize((1024, 1024))
 
-def generate_outline_images(image_bytes, count):
-    if not OPENAI_API_KEY:
-        raise RuntimeError("Missing OPENAI_API_KEY")
+    byte_io = io.BytesIO()
+    img.save(byte_io, format='PNG')
+    byte_io.seek(0)
 
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    prompt = "A high-contrast coloring book outline of this portrait. Bold black lines, pure white background, no shading, no gray."
 
-    prompt = """
-Convert this portrait into realistic coloring-book style.
-Keep only main contours.
-Thick black outlines.
-White background.
-No shading.
-No gray.
-Closed shapes only.
-"""
+    try:
+        # GPT-image-1 Edit call
+        response = client.images.edit(
+            model="gpt-image-1",
+            image=("image.png", byte_io, "image/png"),
+            prompt=prompt,
+            n=int(variants_count),
+            size="1024x1024"
+        )
 
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}"
-    }
+        outlines_b64 = []
+        for data in response.data:
+            url = getattr(data, 'url', None)
+            if url:
+                img_response = requests.get(url)
+                if img_response.status_code == 200:
+                    encoded_str = base64.b64encode(img_response.content).decode('utf-8')
+                    outlines_b64.append(encoded_str)
+            
+        return outlines_b64
 
-    payload = {
-        "model": "gpt-image-1",
-        "prompt": prompt,
-        "n": count,
-        "image": b64,
-        "size": "1024x1024"
-    }
-
-    r = requests.post(API_URL, json=payload, headers=headers, timeout=60)
-    r.raise_for_status()
-
-    return [d["b64_json"] for d in r.json()["data"]]
+    except Exception as e:
+        print(f"Error calling gpt-image-1: {e}")
+        return []

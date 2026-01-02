@@ -43,28 +43,77 @@ export default function App() {
     }
   };
 
-  // 3. VARIANT GENERATION
+  // 3. VARIANT GENERATION (Connected to Backend)
   const generateOutlines = async () => {
+    if (!uploadedImage) return;
+    
     setVariantsLoading(true);
-    // Simulating backend call to /generate-variants
-    setTimeout(() => {
-      const mockVariants = Array.from({ length: generationCount }).map((_, i) => ({
-        id: i,
-        url: 'https://via.placeholder.com/300?text=Outline+Variant+' + (i + 1)
-      }));
-      setVariants(mockVariants);
+    setGlobalError(null);
+
+    const formData = new FormData();
+    formData.append('file', uploadedImage);
+    formData.append('count', generationCount);
+
+    try {
+      const response = await fetch('http://localhost:8000/generate-variants', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Failed to generate outlines');
+
+      const data = await response.json();
+      // Expecting data.variants to be an array of image URLs/base64
+      setVariants(data.variants); 
+    } catch (err) {
+      setGlobalError("Backend Error: " + err.message);
+    } finally {
       setVariantsLoading(false);
-    }, 2000);
+    }
   };
 
-  // 7. GENERATE STL
+  // 7. GENERATE STL (Connected to Backend)
   const generateSTL = async () => {
+    if (!selectedVariant) return;
+
     setStlStatus('working');
-    // Logic to send selectedVariant + modelSettings to backend
-    setTimeout(() => {
+    setGlobalError(null);
+
+    try {
+      const response = await fetch('http://localhost:8000/generate-stl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          variant_id: selectedVariant.id,
+          image_url: selectedVariant.url,
+          settings: modelSettings
+        }),
+      });
+
+      if (!response.ok) throw new Error('Failed to build 3D model');
+
+      // 1. Get the binary data
+      const blob = await response.blob();
+      
+      // 2. Create a download link in memory
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // 3. Force the filename
+      link.setAttribute('download', `sand-art-${Date.now()}.stl`);
+      
+      // 4. Append, click, and cleanup
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url); // Free up memory
+
       setStlStatus('success');
-      setStlDownloadUrl("#"); 
-    }, 3000);
+    } catch (err) {
+      setStlStatus('error');
+      setGlobalError("3D Generation Error: " + err.message);
+    }
   };
 
   return (

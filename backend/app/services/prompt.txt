@@ -1,3 +1,4 @@
+prompt = ("""
 Convert this portrait into a coloring-book style outline drawing designed for 3D printing.
 
 Rules:
@@ -11,3 +12,4 @@ Rules:
 
 Output goal:
 A clean, printable line drawing that looks like a coloring book page and can be extruded into walls for a sand-art frame.
+""")

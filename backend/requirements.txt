@@ -4,6 +4,8 @@ python-multipart
 openai
 requests
 opencv-python-headless
+python-dotenv
+requests
 numpy
 trimesh
 shapely
