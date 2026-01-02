@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI, UploadFile, File, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from app.services.svg_to_stl import svg_to_stl
+from backend.app.services.generate_stl_from_image import generate_stl_from_image
 from app.services.image_pipeline import generate_line_art
 
 # Setup basic logging to see it in Docker logs
@@ -44,8 +44,8 @@ async def generate_model(data: dict = Body(...)):
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".stl")
     
     # Process the 3D conversion
-    # Note: svg_to_stl needs to be able to handle the variant_url/data
-    svg_to_stl(
+    # Note: generate_stl_from_image needs to be able to handle the variant_url/data
+    generate_stl_from_image(
         variant_url, 
         tmp.name, 
         settings.get("wallHeight", 3.0), 

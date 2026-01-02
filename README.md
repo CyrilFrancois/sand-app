@@ -130,35 +130,43 @@ Project root:
 .
 ├── README.md
 ├── docker-compose.yml
-├── .env.example
+├── .env
+├── .gitignore
 ├── backend
 │   ├── Dockerfile
 │   ├── requirements.txt
+│   ├── config.py
 │   ├── app
+│   │   ├── __init__.py
 │   │   ├── main.py
-│   │   ├── models
-│   │   │   └── dto.py
 │   │   ├── services
-│   │   │   ├── ai_service.py
-│   │   │   ├── image_service.py
-│   │   │   └── stl_service.py
-│   │   ├── utils
-│   │   │   └── geometry.py
+│   │   │   ├── __init__.py
+│   │   │   ├── gpt_client.py
+│   │   │   ├── image_pipeline.py
+│   │   │   └── generate_stl_from_image.py
 │   │   ├── static
 │   │   └── temp
 ├── frontend
 │   ├── Dockerfile
 │   ├── package.json
 │   ├── vite.config.js
+│   ├── index.html
 │   └── src
 │       ├── App.jsx
 │       ├── api.js
+│       ├── main.jsx
 │       ├── components
-│       │   ├── UploadArea.jsx
-│       │   ├── OptionsForm.jsx
-│       │   └── Preview.jsx
+│       │   ├── DownloadButton.jsx
+│       │   ├── Dropzone.jsx
+│       │   └── OptionsPanel.jsx
 │       └── styles
 │           └── app.css
+├── ressources
+│   ├── dessin
+│   │   ├── ...example of input portraits...
+│   ├── images
+│   │   ├── ...example of midput coloringbook version of the portraits...
+│   ├── prompt.txt
 ```
 
 ---
