@@ -2,6 +2,7 @@ import tempfile
 import uuid
 import logging
 import base64
+import os
 from fastapi import FastAPI, UploadFile, File, Form, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -35,16 +36,15 @@ async def generate_variants(file: UploadFile = File(...), count: int = Form(...)
 
 @app.post("/generate-stl")
 async def generate_model(data: dict = Body(...)):
-    variant_url = data.get("image_url")  # This is the Base64 string
+    variant_url = data.get("image_url")
     settings = data.get("settings", {})
     
     logger.info(f"--- STEP 2: Building STL for variant ---")
-    
-    # 1. Decode Base64 string to raw bytes
+
+    # 1. Decode the Base64 image
     try:
         if "," in variant_url:
-            # Strip metadata (e.g., 'data:image/png;base64,') if present
-            header, encoded = variant_url.split(",", 1)
+            _, encoded = variant_url.split(",", 1)
             image_bytes = base64.b64decode(encoded)
         else:
             image_bytes = base64.b64decode(variant_url)
@@ -52,13 +52,17 @@ async def generate_model(data: dict = Body(...)):
         logger.error(f"Base64 decoding failed: {e}")
         return JSONResponse(status_code=400, content={"error": "Invalid image data"})
 
-    # 2. Call the service with exactly TWO arguments
-    # We pass image_bytes and the whole settings dictionary
+    # 2. Generate the STL
     stl_path = generate_stl_from_image(image_bytes, settings)
 
+    # 3. Verify path exists using 'os'
     if stl_path and os.path.exists(stl_path):
         logger.info(f"--- STEP 2 COMPLETE: STL generated at {stl_path} ---")
-        return FileResponse(stl_path, filename=f"sand-art-{uuid.uuid4().hex[:6]}.stl")
+        return FileResponse(
+            stl_path, 
+            filename=f"sand-art-{uuid.uuid4().hex[:6]}.stl",
+            media_type="application/sla"
+        )
     
     return JSONResponse(status_code=500, content={"error": "STL generation failed"})
 
