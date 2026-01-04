@@ -7,48 +7,40 @@ import uuid
 
 def generate_stl_from_image(image_bytes, settings):
     try:
-        # 1. Load and Anti-Alias
+        # 1. Load and Smooth (LANCZOS + Gaussian is vital for curves)
         img = Image.open(io.BytesIO(image_bytes)).convert('L')
         
-        # Settings
         wall_h = float(settings.get('wallHeight', 3.0))
-        base_plate_h = float(settings.get('basePlateThickness', 0.3))
+        base_plate_h = float(settings.get('basePlateThickness', 0.4))
         scale_percent = float(settings.get('scalePercent', 100))
+        include_base = settings.get('basePlate', True)
         
-        # 2. SMOOTHING: This is the key to removing the "stairs"
-        # We upsample the image and apply a blur to interpolate between pixels
         process_size = 1200 
         img = img.resize((process_size, process_size), Image.Resampling.LANCZOS)
         
-        # Apply a subtle blur to "melt" the pixel corners into curves
-        img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
+        # We use a slightly stronger blur for the "No Plate" mode 
+        # to ensure the edges are super smooth
+        img = img.filter(ImageFilter.GaussianBlur(radius=2.0))
         
         img = ImageOps.invert(img)
         width, height = img.size
         data = np.array(img) / 255.0
 
-        # 3. Create Smooth Mesh Grid
-        # We use a step (e.g., skip 2 pixels) to create larger triangles
-        # which further smooths out the micro-stepping
+        # 2. Create the smooth vertex grid
         step = 2
-        vertices = []
-        cols = range(0, width, step)
-        rows = range(0, height, step)
+        cols = np.arange(0, width, step)
+        rows = np.arange(0, height, step)
         
-        # Map pixels to vertices
-        for y in rows:
-            for x in cols:
-                # We use a power function to sharpen the top of the wall 
-                # while keeping the base smooth
-                z = (data[y, x] ** 1.5) * wall_h
-                vertices.append([x, y, z])
+        # Efficiently create grid using meshgrid
+        x_grid, y_grid = np.meshgrid(cols, rows)
+        z_grid = (data[rows[:, None], cols] ** 1.5) * wall_h
         
-        vertices = np.array(vertices)
-        
-        # 4. Triangulation
-        faces = []
+        vertices = np.stack([x_grid.flatten(), y_grid.flatten(), z_grid.flatten()], axis=1)
+
+        # 3. Create full mesh faces first
         num_cols = len(cols)
         num_rows = len(rows)
+        faces = []
         for r in range(num_rows - 1):
             for c in range(num_cols - 1):
                 v0 = r * num_cols + c
@@ -58,18 +50,35 @@ def generate_stl_from_image(image_bytes, settings):
                 faces.append([v0, v2, v1])
                 faces.append([v1, v2, v3])
         
-        surface_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 
-        # 5. Base Plate and Scaling
-        if settings.get('basePlate', True):
-            # Create a base slightly larger to ensure clean edges
+        # 4. THE FIX: Soft Masking
+        # Instead of a hard cut at 0, we look for very low intensity areas
+        # and remove those faces. This keeps the "sloped" edges of the curves.
+        if not include_base:
+            # Calculate intensity at the center of each face
+            face_vertices = mesh.vertices[mesh.faces]
+            # Get the original image coordinates for each face
+            face_centers_x = face_vertices[:, :, 0].mean(axis=1).astype(int)
+            face_centers_y = face_vertices[:, :, 1].mean(axis=1).astype(int)
+            
+            # Mask out faces where the image is nearly black (the background)
+            # A very low threshold (0.01) ensures we keep the smooth "slopes"
+            mask = data[face_centers_y, face_centers_x] > 0.02
+            mesh.update_faces(mask)
+            
+            # Remove vertices that are no longer connected to any face
+            mesh.remove_unreferenced_vertices()
+
+        # 5. Base Plate & Scaling
+        if include_base:
             base = trimesh.creation.box(extents=(width, height, base_plate_h))
             base.apply_translation([(width-step)/2, (height-step)/2, -base_plate_h/2])
-            combined = trimesh.util.concatenate([surface_mesh, base])
+            combined = trimesh.util.concatenate([mesh, base])
         else:
-            combined = surface_mesh
+            combined = mesh
 
-        # Physical Scaling (Adjust 0.08 to match your real-world print size)
+        # Apply final scaling
         mm_per_pixel = 0.08 * (scale_percent / 100.0)
         combined.apply_scale(mm_per_pixel)
 
