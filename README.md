@@ -159,8 +159,8 @@ Project root:
 │       │   ├── DownloadButton.jsx
 │       │   ├── Dropzone.jsx
 │       │   └── OptionsPanel.jsx
-│       └── styles
-│           └── app.css
+│       └── public
+│           └── logo.png
 ├── ressources
 │   ├── dessin
 │   │   ├── ...example of input portraits...
