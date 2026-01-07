@@ -157,6 +157,7 @@ export default function App() {
             <h2 className="text-2xl font-black text-indigo-900 tracking-tight italic leading-tight">
               SAND ART<br/><span className="text-indigo-400 not-italic">STUDIO</span>
             </h2>
+            <img src="/logo.png" alt="Logo" className="w-12 h-12 object-contain" onError={(e) => e.target.style.display='none'}/>
           </div>
           
           <nav className="space-y-8 flex-1">
