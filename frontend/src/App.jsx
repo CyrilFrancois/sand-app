@@ -207,7 +207,7 @@ export default function App() {
                 <input type="file" className="hidden" onChange={handleUpload} />
                 <span className="text-4xl">📸</span>
                 <p className="text-xl font-bold text-gray-700 mt-4">Drop your {isPreOutlined ? 'outlined' : 'photo'} here</p>
-                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-2">Or click anywhere in this box</p>
+                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-2">Click anywhere in this box</p>
               </label>
             ) : (
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-8">
