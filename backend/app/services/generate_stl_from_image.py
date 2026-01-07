@@ -4,22 +4,46 @@ from PIL import Image, ImageOps, ImageFilter
 import io
 import os
 import uuid
+import requests
 
-def generate_stl_from_image(image_bytes, settings):
+def generate_stl_from_image(image_source, settings):
+    """
+    image_source can be: 
+    1. A URL string (http...)
+    2. A local file path string (/tmp/...)
+    3. Raw bytes
+    """
     try:
-        # 1. Load and Smooth (LANCZOS + Gaussian is vital for curves)
-        img = Image.open(io.BytesIO(image_bytes)).convert('L')
+        # --- NEW: Robust Image Loading ---
+        if isinstance(image_source, str):
+            if image_source.startswith('http'):
+                # Download from OpenAI/Web
+                response = requests.get(image_source)
+                img_data = io.BytesIO(response.content)
+            else:
+                # Load from local disk (Direct Upload)
+                if os.path.exists(image_source):
+                    with open(image_source, 'rb') as f:
+                        img_data = io.BytesIO(f.read())
+                else:
+                    raise FileNotFoundError(f"Local image path not found: {image_source}")
+        else:
+            # Assume raw bytes
+            img_data = io.BytesIO(image_source)
+
+        # 1. Load and Smooth
+        img = Image.open(img_data).convert('L')
         
         wall_h = float(settings.get('wallHeight', 3.0))
         base_plate_h = float(settings.get('basePlateThickness', 0.4))
         scale_percent = float(settings.get('scalePercent', 100))
         include_base = settings.get('basePlate', True)
         
+        # High-quality resize for smooth curves
         process_size = 1200 
         img = img.resize((process_size, process_size), Image.Resampling.LANCZOS)
         
-        # We use a slightly stronger blur for the "No Plate" mode 
-        # to ensure the edges are super smooth
+        # Blur radius adjusted for organic feel
         img = img.filter(ImageFilter.GaussianBlur(radius=2.0))
         
         img = ImageOps.invert(img)
@@ -31,13 +55,13 @@ def generate_stl_from_image(image_bytes, settings):
         cols = np.arange(0, width, step)
         rows = np.arange(0, height, step)
         
-        # Efficiently create grid using meshgrid
         x_grid, y_grid = np.meshgrid(cols, rows)
+        # Power function (1.5) keeps the base wide and the top sharp
         z_grid = (data[rows[:, None], cols] ** 1.5) * wall_h
         
         vertices = np.stack([x_grid.flatten(), y_grid.flatten(), z_grid.flatten()], axis=1)
 
-        # 3. Create full mesh faces first
+        # 3. Create full mesh faces
         num_cols = len(cols)
         num_rows = len(rows)
         faces = []
@@ -52,22 +76,15 @@ def generate_stl_from_image(image_bytes, settings):
         
         mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 
-        # 4. THE FIX: Soft Masking
-        # Instead of a hard cut at 0, we look for very low intensity areas
-        # and remove those faces. This keeps the "sloped" edges of the curves.
+        # 4. Soft Masking (Crucial for "No Plate" smooth edges)
         if not include_base:
-            # Calculate intensity at the center of each face
             face_vertices = mesh.vertices[mesh.faces]
-            # Get the original image coordinates for each face
             face_centers_x = face_vertices[:, :, 0].mean(axis=1).astype(int)
             face_centers_y = face_vertices[:, :, 1].mean(axis=1).astype(int)
             
-            # Mask out faces where the image is nearly black (the background)
-            # A very low threshold (0.01) ensures we keep the smooth "slopes"
+            # Use a low threshold to preserve the anti-aliased edges
             mask = data[face_centers_y, face_centers_x] > 0.02
             mesh.update_faces(mask)
-            
-            # Remove vertices that are no longer connected to any face
             mesh.remove_unreferenced_vertices()
 
         # 5. Base Plate & Scaling
@@ -78,7 +95,7 @@ def generate_stl_from_image(image_bytes, settings):
         else:
             combined = mesh
 
-        # Apply final scaling
+        # Apply final scaling (0.08 mm per pixel baseline)
         mm_per_pixel = 0.08 * (scale_percent / 100.0)
         combined.apply_scale(mm_per_pixel)
 
