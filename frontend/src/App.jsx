@@ -203,7 +203,6 @@ export default function App() {
             </div>
 
             {!previewUrl ? (
-              /* FIX: Full drop-zone clickable label */
               <label className="block bg-white border-4 border-dashed border-gray-200 rounded-3xl p-16 text-center hover:border-indigo-400 transition-all cursor-pointer">
                 <input type="file" className="hidden" onChange={handleUpload} />
                 <span className="text-4xl">📸</span>
@@ -249,79 +248,83 @@ export default function App() {
           )}
 
           {selectedVariant && (
-            <section className="bg-white p-10 rounded-[2.5rem] shadow-xl border border-gray-100 animate-in fade-in slide-in-from-bottom-4">
-              <div className="flex items-center gap-4 mb-10">
-                <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-lg font-black italic">{isPreOutlined ? '02' : '03'}</div>
+            <section className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+              {/* Header moved outside the white box to match other steps */}
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-indigo-600 text-white rounded-xl flex items-center justify-center text-lg font-black italic">
+                  {isPreOutlined ? '02' : '03'}
+                </div>
                 <h3 className="text-2xl font-black text-gray-900 tracking-tighter uppercase italic">Final Print Specs</h3>
               </div>
 
-              {/* FIX: Aligned columns and larger numerical text */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                <div className="space-y-6">
-                  <label className="block bg-gray-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center">
-                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Global Scale (%)</span>
-                    <input type="number" value={modelSettings.scalePercent} onChange={(e) => setModelSettings(prev => ({...prev, scalePercent: e.target.value}))} className="bg-transparent w-full text-3xl font-black text-indigo-600 outline-none mt-1" />
+              <div className="bg-white p-10 rounded-[2.5rem] shadow-xl border border-gray-100">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                  <div className="space-y-6">
+                    <label className="block bg-gray-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center border border-transparent focus-within:border-indigo-100">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Global Scale (%)</span>
+                      <input type="number" value={modelSettings.scalePercent} onChange={(e) => setModelSettings(prev => ({...prev, scalePercent: e.target.value}))} className="bg-transparent w-full text-3xl font-black text-indigo-600 outline-none mt-1" />
+                    </label>
+                    
+                    <div className="flex gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100 min-h-[110px] items-center">
+                      <div className="flex-1 border-r border-gray-200 text-center">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Final Width</span>
+                        <div className="text-2xl font-black text-indigo-600">{(selectedVariant.width * 0.1 * modelSettings.scalePercent / 100).toFixed(1)}<span className="text-xs ml-1">mm</span></div>
+                      </div>
+                      <div className="flex-1 text-center">
+                        <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Final Height</span>
+                        <div className="text-2xl font-black text-indigo-600">{(selectedVariant.height * 0.1 * modelSettings.scalePercent / 100).toFixed(1)}<span className="text-xs ml-1">mm</span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className="block bg-indigo-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center border border-transparent focus-within:border-indigo-200">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Height</span>
+                        <div className="flex items-baseline gap-1 mt-1">
+                          <input type="number" step="0.1" value={modelSettings.wallHeight} onChange={(e) => setModelSettings(prev => ({...prev, wallHeight: e.target.value}))} className="bg-transparent w-full text-2xl font-black text-indigo-700 outline-none" />
+                          <span className="text-[10px] font-black text-indigo-300">MM</span>
+                        </div>
+                      </label>
+                      <label className="block bg-indigo-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center border border-transparent focus-within:border-indigo-200">
+                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Width</span>
+                        <div className="flex items-baseline gap-1 mt-1">
+                          <input type="number" step="0.1" value={modelSettings.wallThickness} onChange={(e) => setModelSettings(prev => ({...prev, wallThickness: e.target.value}))} className="bg-transparent w-full text-2xl font-black text-indigo-700 outline-none" />
+                          <span className="text-[10px] font-black text-indigo-300">MM</span>
+                        </div>
+                      </label>
+                    </div>
+                    
+                    <div className={`flex items-center justify-between p-6 rounded-2xl text-white shadow-lg transition-all min-h-[110px] ${modelSettings.basePlate ? 'bg-indigo-900' : 'bg-gray-400'}`}>
+                      <div className="flex items-center gap-4">
+                        <input type="checkbox" checked={modelSettings.basePlate} onChange={(e) => setModelSettings(prev => ({...prev, basePlate: e.target.checked}))} className="w-6 h-6 rounded-lg accent-indigo-400 cursor-pointer" />
+                        <span className="text-sm font-black uppercase tracking-tight leading-tight">
+                          {modelSettings.basePlate ? 'Support Plate Included' : 'No Support Plate'}
+                        </span>
+                      </div>
+                      {modelSettings.basePlate && (
+                        <div className="flex flex-col items-end">
+                          <span className="text-[9px] font-black opacity-50 uppercase mb-1">Thickness</span>
+                          <div className="flex items-center gap-1">
+                            <input type="number" step="0.1" value={modelSettings.basePlateThickness} onChange={(e) => setModelSettings(prev => ({...prev, basePlateThickness: e.target.value}))} className="w-16 bg-white/10 rounded-lg p-2 text-xl font-black text-right text-white outline-none" />
+                            <span className="text-[10px] font-black opacity-50">MM</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-10 space-y-4">
+                  <label className="flex items-center gap-3 justify-center cursor-pointer group">
+                    <input type="checkbox" checked={downloadOutline} onChange={(e) => setDownloadOutline(e.target.checked)} className="w-4 h-4 rounded accent-green-500" />
+                    <span className="text-[11px] font-black text-gray-400 uppercase tracking-wider group-hover:text-green-600 transition-colors">Include source outline (.png) in download</span>
                   </label>
                   
-                  <div className="flex gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100 min-h-[110px] items-center">
-                    <div className="flex-1 border-r border-gray-200 text-center">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Final Width</span>
-                      <div className="text-2xl font-black text-indigo-600">{(selectedVariant.width * 0.1 * modelSettings.scalePercent / 100).toFixed(1)}<span className="text-xs ml-1">mm</span></div>
-                    </div>
-                    <div className="flex-1 text-center">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Final Height</span>
-                      <div className="text-2xl font-black text-indigo-600">{(selectedVariant.height * 0.1 * modelSettings.scalePercent / 100).toFixed(1)}<span className="text-xs ml-1">mm</span></div>
-                    </div>
-                  </div>
+                  <button onClick={generateSTL} disabled={stlStatus === 'working'} className="w-full py-6 rounded-3xl font-black text-xl tracking-tighter shadow-2xl transition-all active:scale-[0.98] bg-green-500 hover:bg-green-600 text-white disabled:bg-gray-100 disabled:text-gray-400">
+                    {stlStatus === 'working' ? 'BUILDING 3D GEOMETRY...' : `DOWNLOAD ${downloadOutline ? 'FILES (STL + PNG)' : '3D MODEL (.STL)'}`}
+                  </button>
                 </div>
-
-                <div className="space-y-6">
-                  <div className="grid grid-cols-2 gap-4">
-                    <label className="block bg-indigo-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center">
-                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Height</span>
-                      <div className="flex items-baseline gap-1 mt-1">
-                        <input type="number" step="0.1" value={modelSettings.wallHeight} onChange={(e) => setModelSettings(prev => ({...prev, wallHeight: e.target.value}))} className="bg-transparent w-full text-2xl font-black text-indigo-700 outline-none" />
-                        <span className="text-[10px] font-black text-indigo-300">MM</span>
-                      </div>
-                    </label>
-                    <label className="block bg-indigo-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center">
-                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Width</span>
-                      <div className="flex items-baseline gap-1 mt-1">
-                        <input type="number" step="0.1" value={modelSettings.wallThickness} onChange={(e) => setModelSettings(prev => ({...prev, wallThickness: e.target.value}))} className="bg-transparent w-full text-2xl font-black text-indigo-700 outline-none" />
-                        <span className="text-[10px] font-black text-indigo-300">MM</span>
-                      </div>
-                    </label>
-                  </div>
-                  
-                  <div className={`flex items-center justify-between p-6 rounded-2xl text-white shadow-lg transition-all min-h-[110px] ${modelSettings.basePlate ? 'bg-indigo-900' : 'bg-gray-400'}`}>
-                    <div className="flex items-center gap-4">
-                      <input type="checkbox" checked={modelSettings.basePlate} onChange={(e) => setModelSettings(prev => ({...prev, basePlate: e.target.checked}))} className="w-6 h-6 rounded-lg accent-indigo-400 cursor-pointer" />
-                      <span className="text-sm font-black uppercase tracking-tight leading-tight">
-                        {modelSettings.basePlate ? 'Support Plate Included' : 'No Support Plate'}
-                      </span>
-                    </div>
-                    {modelSettings.basePlate && (
-                      <div className="flex flex-col items-end">
-                        <span className="text-[9px] font-black opacity-50 uppercase mb-1">Thickness</span>
-                        <div className="flex items-center gap-1">
-                          <input type="number" step="0.1" value={modelSettings.basePlateThickness} onChange={(e) => setModelSettings(prev => ({...prev, basePlateThickness: e.target.value}))} className="w-16 bg-white/10 rounded-lg p-2 text-xl font-black text-right text-white outline-none" />
-                          <span className="text-[10px] font-black opacity-50">MM</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-10 space-y-4">
-                <label className="flex items-center gap-3 justify-center cursor-pointer group">
-                  <input type="checkbox" checked={downloadOutline} onChange={(e) => setDownloadOutline(e.target.checked)} className="w-4 h-4 rounded accent-green-500" />
-                  <span className="text-[11px] font-black text-gray-400 uppercase tracking-wider group-hover:text-green-600 transition-colors">Include source outline (.png) in download</span>
-                </label>
-                
-                <button onClick={generateSTL} disabled={stlStatus === 'working'} className="w-full py-6 rounded-3xl font-black text-xl tracking-tighter shadow-2xl transition-all active:scale-[0.98] bg-green-500 hover:bg-green-600 text-white disabled:bg-gray-100 disabled:text-gray-400">
-                  {stlStatus === 'working' ? 'BUILDING 3D GEOMETRY...' : `DOWNLOAD ${downloadOutline ? 'FILES (STL + PNG)' : '3D MODEL (.STL)'}`}
-                </button>
               </div>
             </section>
           )}
