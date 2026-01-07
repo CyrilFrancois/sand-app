@@ -10,6 +10,11 @@ This app:
 
 Designed for **personal use** and **fully automated**, with only a few clicks needed.
 
+
+<p align="center">
+  <img src="ressources/wholeapp.png" width="400">
+</p>
+
 ---
 
 ## Context
@@ -162,11 +167,13 @@ Project root:
 │       └── public
 │           └── logo.png
 ├── ressources
-│   ├── dessin
-│   │   ├── ...example of input portraits...
 │   ├── images
+│   │   ├── ...example of input portraits...
+│   ├── outlines
 │   │   ├── ...example of midput coloringbook version of the portraits...
-│   ├── prompt.txt
+│   ├── STL
+│   │   ├── ...example of STL outputs...
+│   ├── wholeapp.png 
 ```
 
 ---
@@ -240,4 +247,3 @@ Personal use only initially. To be defined for public release.
 ## Notes
 
 AI output is heuristic. Always visually inspect STL before printing.
-
