@@ -14,7 +14,7 @@ export default function App() {
   const [modelSettings, setModelSettings] = useState({
     wallHeight: 3.0,
     wallThickness: 0.4,
-    basePlate: false, // Defaulted to false
+    basePlate: false,
     basePlateThickness: 0.4,
     scalePercent: 100, 
   });
@@ -203,13 +203,13 @@ export default function App() {
             </div>
 
             {!previewUrl ? (
-              <div className="bg-white border-4 border-dashed border-gray-200 rounded-3xl p-16 text-center hover:border-indigo-400 transition-all cursor-pointer">
-                <input type="file" id="u-file" className="hidden" onChange={handleUpload} />
-                <label htmlFor="u-file" className="cursor-pointer">
-                  <span className="text-4xl">📸</span>
-                  <p className="text-xl font-bold text-gray-700 mt-4">Drop your {isPreOutlined ? 'outlined' : 'photo'} here</p>
-                </label>
-              </div>
+              /* FIX: Full drop-zone clickable label */
+              <label className="block bg-white border-4 border-dashed border-gray-200 rounded-3xl p-16 text-center hover:border-indigo-400 transition-all cursor-pointer">
+                <input type="file" className="hidden" onChange={handleUpload} />
+                <span className="text-4xl">📸</span>
+                <p className="text-xl font-bold text-gray-700 mt-4">Drop your {isPreOutlined ? 'outlined' : 'photo'} here</p>
+                <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mt-2">Or click anywhere in this box</p>
+              </label>
             ) : (
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 flex items-center gap-8">
                 <img src={previewUrl} className="h-24 w-24 object-cover rounded-xl shadow-inner border-2 border-white" alt="Source" />
@@ -255,44 +255,58 @@ export default function App() {
                 <h3 className="text-2xl font-black text-gray-900 tracking-tighter uppercase italic">Final Print Specs</h3>
               </div>
 
+              {/* FIX: Aligned columns and larger numerical text */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
                 <div className="space-y-6">
-                  <label className="block">
+                  <label className="block bg-gray-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center">
                     <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Global Scale (%)</span>
-                    <input type="number" value={modelSettings.scalePercent} onChange={(e) => setModelSettings(prev => ({...prev, scalePercent: e.target.value}))} className="mt-2 w-full p-4 bg-gray-50 border-none rounded-2xl text-xl font-black text-indigo-600 outline-none" />
+                    <input type="number" value={modelSettings.scalePercent} onChange={(e) => setModelSettings(prev => ({...prev, scalePercent: e.target.value}))} className="bg-transparent w-full text-3xl font-black text-indigo-600 outline-none mt-1" />
                   </label>
-                  <div className="flex gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                    <div className="flex-1 border-r text-center">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase">Width</span>
-                      <div className="text-lg font-black text-indigo-600">{(selectedVariant.width * 0.1 * modelSettings.scalePercent / 100).toFixed(1)} mm</div>
+                  
+                  <div className="flex gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100 min-h-[110px] items-center">
+                    <div className="flex-1 border-r border-gray-200 text-center">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Final Width</span>
+                      <div className="text-2xl font-black text-indigo-600">{(selectedVariant.width * 0.1 * modelSettings.scalePercent / 100).toFixed(1)}<span className="text-xs ml-1">mm</span></div>
                     </div>
                     <div className="flex-1 text-center">
-                      <span className="text-[10px] font-bold text-gray-400 uppercase">Height</span>
-                      <div className="text-lg font-black text-indigo-600">{(selectedVariant.height * 0.1 * modelSettings.scalePercent / 100).toFixed(1)} mm</div>
+                      <span className="text-[10px] font-bold text-gray-400 uppercase block mb-1">Final Height</span>
+                      <div className="text-2xl font-black text-indigo-600">{(selectedVariant.height * 0.1 * modelSettings.scalePercent / 100).toFixed(1)}<span className="text-xs ml-1">mm</span></div>
                     </div>
                   </div>
                 </div>
 
                 <div className="space-y-6">
                   <div className="grid grid-cols-2 gap-4">
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Height (mm)
-                      <input type="number" step="0.1" value={modelSettings.wallHeight} onChange={(e) => setModelSettings(prev => ({...prev, wallHeight: e.target.value}))} className="mt-2 w-full p-4 bg-indigo-50 border-none rounded-2xl font-black text-indigo-700 outline-none" />
+                    <label className="block bg-indigo-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Height</span>
+                      <div className="flex items-baseline gap-1 mt-1">
+                        <input type="number" step="0.1" value={modelSettings.wallHeight} onChange={(e) => setModelSettings(prev => ({...prev, wallHeight: e.target.value}))} className="bg-transparent w-full text-2xl font-black text-indigo-700 outline-none" />
+                        <span className="text-[10px] font-black text-indigo-300">MM</span>
+                      </div>
                     </label>
-                    <label className="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Width (mm)
-                      <input type="number" step="0.1" value={modelSettings.wallThickness} onChange={(e) => setModelSettings(prev => ({...prev, wallThickness: e.target.value}))} className="mt-2 w-full p-4 bg-indigo-50 border-none rounded-2xl font-black text-indigo-700 outline-none" />
+                    <label className="block bg-indigo-50 p-4 rounded-2xl min-h-[110px] flex flex-col justify-center">
+                      <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Wall Width</span>
+                      <div className="flex items-baseline gap-1 mt-1">
+                        <input type="number" step="0.1" value={modelSettings.wallThickness} onChange={(e) => setModelSettings(prev => ({...prev, wallThickness: e.target.value}))} className="bg-transparent w-full text-2xl font-black text-indigo-700 outline-none" />
+                        <span className="text-[10px] font-black text-indigo-300">MM</span>
+                      </div>
                     </label>
                   </div>
-                  <div className={`flex items-center justify-between p-4 rounded-2xl text-white shadow-lg transition-colors ${modelSettings.basePlate ? 'bg-indigo-900' : 'bg-gray-400'}`}>
-                    <div className="flex items-center gap-3">
-                      <input type="checkbox" checked={modelSettings.basePlate} onChange={(e) => setModelSettings(prev => ({...prev, basePlate: e.target.checked}))} className="w-5 h-5 accent-indigo-400" />
-                      <span className="text-sm font-bold uppercase tracking-tight">
+                  
+                  <div className={`flex items-center justify-between p-6 rounded-2xl text-white shadow-lg transition-all min-h-[110px] ${modelSettings.basePlate ? 'bg-indigo-900' : 'bg-gray-400'}`}>
+                    <div className="flex items-center gap-4">
+                      <input type="checkbox" checked={modelSettings.basePlate} onChange={(e) => setModelSettings(prev => ({...prev, basePlate: e.target.checked}))} className="w-6 h-6 rounded-lg accent-indigo-400 cursor-pointer" />
+                      <span className="text-sm font-black uppercase tracking-tight leading-tight">
                         {modelSettings.basePlate ? 'Support Plate Included' : 'No Support Plate'}
                       </span>
                     </div>
                     {modelSettings.basePlate && (
-                      <div className="flex items-center gap-1">
-                        <input type="number" step="0.1" value={modelSettings.basePlateThickness} onChange={(e) => setModelSettings(prev => ({...prev, basePlateThickness: e.target.value}))} className="w-12 bg-transparent border-none font-black text-right text-indigo-100 outline-none" />
-                        <span className="text-[10px] font-black opacity-50">MM</span>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[9px] font-black opacity-50 uppercase mb-1">Thickness</span>
+                        <div className="flex items-center gap-1">
+                          <input type="number" step="0.1" value={modelSettings.basePlateThickness} onChange={(e) => setModelSettings(prev => ({...prev, basePlateThickness: e.target.value}))} className="w-16 bg-white/10 rounded-lg p-2 text-xl font-black text-right text-white outline-none" />
+                          <span className="text-[10px] font-black opacity-50">MM</span>
+                        </div>
                       </div>
                     )}
                   </div>
