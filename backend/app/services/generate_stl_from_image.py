@@ -5,105 +5,121 @@ import io
 import os
 import uuid
 import requests
+import cv2
+from shapely.geometry import Polygon, MultiPolygon, MultiPoint
+from shapely.validation import make_valid
+from shapely.ops import unary_union
 
 def generate_stl_from_image(image_source, settings):
-    """
-    image_source can be: 
-    1. A URL string (http...)
-    2. A local file path string (/tmp/...)
-    3. Raw bytes
-    """
     try:
-        # --- NEW: Robust Image Loading ---
+        # 1. Image Loading
         if isinstance(image_source, str):
             if image_source.startswith('http'):
-                # Download from OpenAI/Web
-                response = requests.get(image_source)
+                response = requests.get(image_source, timeout=15)
                 img_data = io.BytesIO(response.content)
             else:
-                # Load from local disk (Direct Upload)
-                if os.path.exists(image_source):
-                    with open(image_source, 'rb') as f:
-                        img_data = io.BytesIO(f.read())
-                else:
-                    raise FileNotFoundError(f"Local image path not found: {image_source}")
+                with open(image_source, 'rb') as f:
+                    img_data = io.BytesIO(f.read())
         else:
-            # Assume raw bytes
             img_data = io.BytesIO(image_source)
 
-        # 1. Load and Smooth
-        img = Image.open(img_data).convert('L')
-        
+        # 2. Settings & Calibration
         wall_h = float(settings.get('wallHeight', 3.0))
-        base_plate_h = float(settings.get('basePlateThickness', 0.4))
-        scale_percent = float(settings.get('scalePercent', 100))
+        base_h = float(settings.get('basePlateThickness', 0.4))
+        scale_percent = float(settings.get('scalePercent', 100)) / 100.0
         include_base = settings.get('basePlate', True)
         
-        # High-quality resize for smooth curves
-        process_size = 1200 
-        img = img.resize((process_size, process_size), Image.Resampling.LANCZOS)
-        
-        # Blur radius adjusted for organic feel
-        img = img.filter(ImageFilter.GaussianBlur(radius=2.0))
-        
-        img = ImageOps.invert(img)
-        width, height = img.size
-        data = np.array(img) / 255.0
+        # Calibration constant
+        pixel_to_mm = 0.1 * scale_percent
 
-        # 2. Create the smooth vertex grid
-        step = 2
-        cols = np.arange(0, width, step)
-        rows = np.arange(0, height, step)
-        
-        x_grid, y_grid = np.meshgrid(cols, rows)
-        # Power function (1.5) keeps the base wide and the top sharp
-        z_grid = (data[rows[:, None], cols] ** 1.5) * wall_h
-        
-        vertices = np.stack([x_grid.flatten(), y_grid.flatten(), z_grid.flatten()], axis=1)
+        # 3. Pre-processing
+        img = Image.open(img_data).convert('L')
+        img = img.resize((1500, 1500), Image.Resampling.LANCZOS)
+        img_np = np.array(img)
+        binary = np.where(img_np < 140, 255, 0).astype(np.uint8)
 
-        # 3. Create full mesh faces
-        num_cols = len(cols)
-        num_rows = len(rows)
-        faces = []
-        for r in range(num_rows - 1):
-            for c in range(num_cols - 1):
-                v0 = r * num_cols + c
-                v1 = v0 + 1
-                v2 = v0 + num_cols
-                v3 = v2 + 1
-                faces.append([v0, v2, v1])
-                faces.append([v1, v2, v3])
+        # 4. Outline Detection
+        contours, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         
-        mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
+        if hierarchy is None:
+            return None
 
-        # 4. Soft Masking (Crucial for "No Plate" smooth edges)
-        if not include_base:
-            face_vertices = mesh.vertices[mesh.faces]
-            face_centers_x = face_vertices[:, :, 0].mean(axis=1).astype(int)
-            face_centers_y = face_vertices[:, :, 1].mean(axis=1).astype(int)
+        shapely_polys = []
+        all_points = [] # To track every point for the global base plate
+
+        for i, h in enumerate(hierarchy[0]):
+            if h[3] == -1:  # External contour
+                exterior = contours[i].reshape(-1, 2)
+                if len(exterior) < 3: continue
+                all_points.extend(exterior)
+                
+                interiors = []
+                child_idx = h[2]
+                while child_idx != -1:
+                    interior = contours[child_idx].reshape(-1, 2)
+                    if len(interior) >= 3:
+                        interiors.append(interior)
+                        all_points.extend(interior)
+                    child_idx = hierarchy[0][child_idx][0]
+                
+                poly = Polygon(shell=exterior, holes=interiors)
+                if not poly.is_valid:
+                    poly = make_valid(poly)
+                
+                poly = poly.buffer(0.01)
+                if not poly.is_empty:
+                    shapely_polys.append(poly)
+
+        if not shapely_polys:
+            return None
+
+        # 5. Build 3D Mesh (Walls)
+        wall_meshes = []
+        for poly in shapely_polys:
+            geoms = [poly] if isinstance(poly, Polygon) else list(poly.geoms)
+            for g in geoms:
+                if g.area > 0.5:
+                    # Extrude and force fix to ensure "filled" volume
+                    m = trimesh.creation.extrude_polygon(g, height=wall_h)
+                    wall_meshes.append(m)
+
+        combined_walls = trimesh.util.concatenate(wall_meshes)
+        # Ensure walls are solid/closed
+        combined_walls.fill_holes()
+
+        # 6. Global Support Plate (Convex Hull approach)
+        if include_base and all_points:
+            # Create a single geometry from ALL points of ALL objects
+            points_geom = MultiPoint(all_points)
+            # Convex hull finds the "most outside points" and draws a perimeter
+            global_base_poly = points_geom.convex_hull
             
-            # Use a low threshold to preserve the anti-aliased edges
-            mask = data[face_centers_y, face_centers_x] > 0.02
-            mesh.update_faces(mask)
-            mesh.remove_unreferenced_vertices()
-
-        # 5. Base Plate & Scaling
-        if include_base:
-            base = trimesh.creation.box(extents=(width, height, base_plate_h))
-            base.apply_translation([(width-step)/2, (height-step)/2, -base_plate_h/2])
-            combined = trimesh.util.concatenate([mesh, base])
+            # Buffer it slightly so it extends beyond the objects
+            global_base_poly = global_base_poly.buffer(5.0) 
+            
+            # Extrude the base downward
+            base_mesh = trimesh.creation.extrude_polygon(global_base_poly, height=base_h)
+            base_mesh.apply_translation([0, 0, -base_h])
+            
+            final_mesh = trimesh.util.concatenate([combined_walls, base_mesh])
         else:
-            combined = mesh
+            final_mesh = combined_walls
 
-        # Apply final scaling (0.08 mm per pixel baseline)
-        mm_per_pixel = 0.08 * (scale_percent / 100.0)
-        combined.apply_scale(mm_per_pixel)
+        # 7. Final Scale & Bed Placement
+        # Scale everything to the requested physical size
+        final_mesh.apply_scale(pixel_to_mm)
+        
+        # Center the model
+        final_mesh.apply_translation(-final_mesh.centroid)
+        # Place flat on Z=0
+        z_min = final_mesh.bounds[0][2]
+        final_mesh.apply_translation([0, 0, -z_min])
 
-        # 6. Export
+        # 8. Export
         output_dir = "/tmp/sand_art_output"
         os.makedirs(output_dir, exist_ok=True)
         temp_path = os.path.join(output_dir, f"sand_art_{uuid.uuid4().hex[:8]}.stl")
-        combined.export(temp_path)
+        final_mesh.export(temp_path)
         
         return temp_path
 

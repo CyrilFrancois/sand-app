@@ -5,8 +5,8 @@ openai
 requests
 opencv-python-headless
 python-dotenv
-requests
 numpy
-trimesh
+trimesh[all]
 shapely
+mapbox-earcut
 Pillow
