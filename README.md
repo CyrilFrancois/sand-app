@@ -247,11 +247,3 @@ Personal use only initially. To be defined for public release.
 ## Notes
 
 AI output is heuristic. Always visually inspect STL before printing.
-
-- The heigh of the generated STL is not the same as the choosen one in the front (almost 6 times less)
-
-- The volume generated is empty, we need to fill the shape so when printed, it is full
-
-- The use of formula to round the corner and have propers lines is good except the lines should be curved only on X and Y axis, not in its Z/height axis, which means the wall should have right angles at the top and bottom of the line but still follow the curves of the model
-
-- When adding the support plate, it shouldn't be a rectangle but follow the external form.
