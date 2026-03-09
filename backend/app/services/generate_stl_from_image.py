@@ -1,16 +1,26 @@
 import numpy as np
 import trimesh
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image
 import io
 import os
 import uuid
 import requests
 import cv2
-from shapely.geometry import Polygon, MultiPolygon, MultiPoint
+import logging
+from shapely.geometry import Polygon, MultiPolygon
 from shapely.validation import make_valid
 from shapely.ops import unary_union
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("sand-backend")
+
 def generate_stl_from_image(image_source, settings):
+    logger.info("--- New STL Generation Request ---")
+    # Log all parameters for debugging
+    for key, value in settings.items():
+        logger.info(f"Param: {key} = {value}")
+
     try:
         # 1. Image Loading
         if isinstance(image_source, str):
@@ -23,35 +33,49 @@ def generate_stl_from_image(image_source, settings):
         else:
             img_data = io.BytesIO(image_source)
 
-        # 2. Settings & Calibration
+        # 2. Extract and Sanitize Settings
         wall_h = float(settings.get('wallHeight', 3.0))
         base_h = float(settings.get('basePlateThickness', 0.4))
+        target_wall_width_mm = float(settings.get('wallThickness', 1.0))
         scale_percent = float(settings.get('scalePercent', 100)) / 100.0
         include_base = settings.get('basePlate', True)
         
-        # Calibration constant
-        pixel_to_mm = 0.1 * scale_percent
+        # Internal pixel calibration (0.1mm baseline)
+        pixel_to_mm = 0.1 
 
-        # 3. Pre-processing
-        img = Image.open(img_data).convert('L')
-        img = img.resize((1500, 1500), Image.Resampling.LANCZOS)
+        # 3. Load & Aspect Ratio Preservation
+        img_raw = Image.open(img_data).convert('L')
+        orig_w, orig_h = img_raw.size
+        
+        max_dim = 1500
+        ratio = orig_w / orig_h
+        if orig_w > orig_h:
+            new_w, new_h = max_dim, int(max_dim / ratio)
+        else:
+            new_h, new_w = max_dim, int(max_dim * ratio)
+            
+        img = img_raw.resize((new_w, new_h), Image.Resampling.LANCZOS)
         img_np = np.array(img)
         binary = np.where(img_np < 140, 255, 0).astype(np.uint8)
 
-        # 4. Outline Detection
+        # 4. Hierarchical Contour Detection
         contours, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
         
         if hierarchy is None:
+            logger.error("No contours found.")
             return None
 
-        shapely_polys = []
-        all_points = [] # To track every point for the global base plate
+        final_wall_polys = []
+        base_outline_polys = []
+
+        # Convert target mm width to pixel units for Shapely processing
+        # This is the 'radius' for buffering
+        target_buffer_px = (target_wall_width_mm / pixel_to_mm) / 2.0
 
         for i, h in enumerate(hierarchy[0]):
             if h[3] == -1:  # External contour
                 exterior = contours[i].reshape(-1, 2)
                 if len(exterior) < 3: continue
-                all_points.extend(exterior)
                 
                 interiors = []
                 child_idx = h[2]
@@ -59,71 +83,77 @@ def generate_stl_from_image(image_source, settings):
                     interior = contours[child_idx].reshape(-1, 2)
                     if len(interior) >= 3:
                         interiors.append(interior)
-                        all_points.extend(interior)
                     child_idx = hierarchy[0][child_idx][0]
                 
                 poly = Polygon(shell=exterior, holes=interiors)
-                if not poly.is_valid:
-                    poly = make_valid(poly)
-                
-                poly = poly.buffer(0.01)
-                if not poly.is_empty:
-                    shapely_polys.append(poly)
+                if not poly.is_valid: poly = make_valid(poly)
 
-        if not shapely_polys:
+                # --- INTELLIGENT WALL THINNING ---
+                # Instead of skeletonization, we use a "Negative-Positive Buffer"
+                # This shrinks thick lines to their center, then expands to exactly target_wall_width
+                # Thin lines that would disappear are protected.
+                shrunk = poly.buffer(-target_buffer_px)
+                if shrunk.is_empty or shrunk.area < 1.0:
+                    # If it's already thinner than target, keep original or expand slightly
+                    final_wall = poly
+                else:
+                    # Re-expand the "core" to the exact desired width
+                    final_wall = shrunk.buffer(target_buffer_px)
+
+                final_wall_polys.append(final_wall)
+                # For the base, we take the solid version (shell only)
+                base_outline_polys.append(Polygon(shell=exterior))
+
+        if not final_wall_polys:
             return None
 
-        # 5. Build 3D Mesh (Walls)
+        # 5. Build 3D Wall Meshes
         wall_meshes = []
-        for poly in shapely_polys:
-            geoms = [poly] if isinstance(poly, Polygon) else list(poly.geoms)
-            for g in geoms:
-                if g.area > 0.5:
-                    # Extrude and force fix to ensure "filled" volume
-                    m = trimesh.creation.extrude_polygon(g, height=wall_h)
-                    wall_meshes.append(m)
-
+        unified_walls = unary_union(final_wall_polys)
+        
+        geoms_w = [unified_walls] if isinstance(unified_walls, Polygon) else list(unified_walls.geoms)
+        for gw in geoms_w:
+            if gw.area > 0.1:
+                m = trimesh.creation.extrude_polygon(gw, height=wall_h)
+                wall_meshes.append(m)
+        
         combined_walls = trimesh.util.concatenate(wall_meshes)
-        # Ensure walls are solid/closed
-        combined_walls.fill_holes()
 
-        # 6. Global Support Plate (Convex Hull approach)
-        if include_base and all_points:
-            # Create a single geometry from ALL points of ALL objects
-            points_geom = MultiPoint(all_points)
-            # Convex hull finds the "most outside points" and draws a perimeter
-            global_base_poly = points_geom.convex_hull
+        # 6. Unified Global Support Plate (One Shape)
+        if include_base and base_outline_polys:
+            # Union all footprints into one single continuous shape
+            unified_base_geom = unary_union(base_outline_polys)
             
-            # Buffer it slightly so it extends beyond the objects
-            # Margin setting for the support plate
-            global_base_poly = global_base_poly.buffer(0) 
+            base_parts = []
+            geoms_b = [unified_base_geom] if isinstance(unified_base_geom, Polygon) else list(unified_base_geom.geoms)
+            for gb in geoms_b:
+                bm = trimesh.creation.extrude_polygon(gb, height=base_h)
+                bm.apply_translation([0, 0, -base_h])
+                base_parts.append(bm)
             
-            # Extrude the base downward
-            base_mesh = trimesh.creation.extrude_polygon(global_base_poly, height=base_h)
-            base_mesh.apply_translation([0, 0, -base_h])
-            
-            final_mesh = trimesh.util.concatenate([combined_walls, base_mesh])
+            final_mesh = trimesh.util.concatenate([combined_walls] + base_parts)
         else:
             final_mesh = combined_walls
 
-        # 7. Final Scale & Bed Placement
-        # Scale everything to the requested physical size
-        final_mesh.apply_scale(pixel_to_mm)
+        # 7. Scaling (X/Y scaled, Z constant)
+        xy_scale = pixel_to_mm * scale_percent
+        final_mesh.apply_scale([xy_scale, xy_scale, 1.0])
         
-        # Center the model
-        final_mesh.apply_translation(-final_mesh.centroid)
-        # Place flat on Z=0
+        # 8. Centering & Placement
+        c = final_mesh.centroid
+        final_mesh.apply_translation([-c[0], -c[1], 0])
         z_min = final_mesh.bounds[0][2]
         final_mesh.apply_translation([0, 0, -z_min])
 
-        # 8. Export
+        # 9. Export
         output_dir = "/tmp/sand_art_output"
         os.makedirs(output_dir, exist_ok=True)
         temp_path = os.path.join(output_dir, f"sand_art_{uuid.uuid4().hex[:8]}.stl")
         final_mesh.export(temp_path)
         
+        logger.info(f"STL Generation Successful: {temp_path}")
         return temp_path
 
     except Exception as e:
-        print(f"STL Error: {e}")
+        logger.error(f"STL Generation Failed: {e}", exc_info=True)
         return None
