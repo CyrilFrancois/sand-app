@@ -95,7 +95,8 @@ def generate_stl_from_image(image_source, settings):
             global_base_poly = points_geom.convex_hull
             
             # Buffer it slightly so it extends beyond the objects
-            global_base_poly = global_base_poly.buffer(5.0) 
+            # Margin setting for the support plate
+            global_base_poly = global_base_poly.buffer(0) 
             
             # Extrude the base downward
             base_mesh = trimesh.creation.extrude_polygon(global_base_poly, height=base_h)
