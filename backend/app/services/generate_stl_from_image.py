@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sand-backend")
 
 def generate_stl_from_image(image_source, settings):
-    logger.info("--- Corrected STL Generation Request ---")
+    logger.info("--- Refined STL Generation Request ---")
     for key, value in settings.items():
         logger.info(f"Param: {key} = {value}")
 
@@ -64,7 +64,7 @@ def generate_stl_from_image(image_source, settings):
                 exterior = contours[i].reshape(-1, 2)
                 if len(exterior) < 3: continue
                 
-                # We always store the raw exterior for the base calculation
+                # Store for base calculation
                 base_footprints.append(Polygon(shell=exterior))
                 
                 interiors = []
@@ -78,30 +78,34 @@ def generate_stl_from_image(image_source, settings):
                 poly = Polygon(shell=exterior, holes=interiors)
                 if not poly.is_valid: poly = make_valid(poly)
 
-                # FIX 1: Protection against disappearing walls
-                # We buffer OUT first to ensure thin lines survive, 
-                # then use a negative buffer to clean up thickness.
+                # Ensure line survival: Positive buffer first
+                # join_style=2 (mitre) or join_style=1 (round) to prevent thinning
                 protected_poly = poly.buffer(target_buffer_px, join_style=2)
-                # Now shrink the center to keep it aligned with the original drawing
-                final_wall = protected_poly.buffer(-0.1).buffer(0.1) 
-                
-                internal_wall_polys.append(final_wall)
+                internal_wall_polys.append(protected_poly)
 
         if not internal_wall_polys: return None
 
-        # 5. FIX 2: Unified Shape (Follows Curves, No Diagonals)
-        # We join all shapes and use a "Close" operation (Dilate then Erode)
+        # 5. Unified Support Shape (Curve-following + No Holes)
         raw_unified_base = unary_union(base_footprints)
-        # bridge_dist is how far apart objects can be while still being joined
         bridge_dist = 50 
         envelope_poly = raw_unified_base.buffer(bridge_dist).buffer(-bridge_dist)
         
-        if not envelope_poly.is_valid: envelope_poly = make_valid(envelope_poly)
+        # STEP: Fill all internal holes for the support plate
+        if not envelope_poly.is_empty:
+            if isinstance(envelope_poly, MultiPolygon):
+                # Process each part: Create a new polygon using only the exterior shell
+                envelope_poly = MultiPolygon([Polygon(p.exterior) for p in envelope_poly.geoms])
+            else:
+                envelope_poly = Polygon(envelope_poly.exterior)
 
-        # 6. Generate External Boundary Wall
-        # This follows the NEW envelope (with curves)
+        if not envelope_poly.is_valid: 
+            envelope_poly = make_valid(envelope_poly)
+
+        # 6. Generate Uniform External Boundary Wall
+        # We buffer the shell of the support plate to get the outer containment wall
+        # Using join_style=2 (mitre) ensures sharp corners and consistent width in slicers
         boundary_line = envelope_poly.exterior
-        external_boundary_wall_poly = boundary_line.buffer(target_buffer_px, cap_style=2, join_style=2)
+        external_boundary_wall_poly = boundary_line.buffer(target_buffer_px, join_style=2, cap_style=2)
 
         # 7. Combine All Wall Geometries
         all_walls_geom = unary_union(internal_wall_polys + [external_boundary_wall_poly])
@@ -114,9 +118,8 @@ def generate_stl_from_image(image_source, settings):
         
         combined_walls = trimesh.util.concatenate(wall_meshes)
 
-        # 8. Support Plate
+        # 8. Support Plate (Solid Footprint)
         if include_base:
-            # The plate now correctly follows the curves (indents) of your drawing
             base_mesh = trimesh.creation.extrude_polygon(envelope_poly, height=base_h)
             base_mesh.apply_translation([0, 0, -base_h])
             final_mesh = trimesh.util.concatenate([combined_walls, base_mesh])
