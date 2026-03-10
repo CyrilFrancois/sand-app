@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sand-backend")
 
 def generate_stl_from_image(image_source, settings):
-    logger.info("--- Side-Specific Framing with Adaptive Thickness Detection ---")
+    logger.info("--- Side-Specific Framing with Thickness Normalization ---")
     
     try:
         # 1. Image Loading
@@ -37,6 +37,8 @@ def generate_stl_from_image(image_source, settings):
         scale_percent = float(settings.get('scalePercent', 100)) / 100.0
         include_base = settings.get('basePlate', True)
         pixel_to_mm = 0.1
+        
+        # This is the "user requested" expansion
         radius_px = (target_wall_width_mm / pixel_to_mm) / 2.0
 
         # 3. Pre-processing
@@ -50,14 +52,17 @@ def generate_stl_from_image(image_source, settings):
         img_np = np.array(img)
         binary = np.where(img_np < 140, 255, 0).astype(np.uint8)
 
-        # --- ADAPTIVE THICKNESS DETECTION ---
+        # --- DYNAMIC THICKNESS COMPENSATION ---
         # Distance transform finds the distance to the closest zero pixel for each pixel
         dist_transform = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
-        # The 'thickness' is twice the typical distance from the center to the edge
-        detected_thickness = np.percentile(dist_transform[dist_transform > 0], 90) * 2.0
-        # Fallback to a safe minimum if the image is empty
-        drawing_thickness_px = max(detected_thickness, 4.0)
-        logger.info(f"Detected drawing line thickness: {drawing_thickness_px:.2f}px")
+        # We find the median thickness of the drawing lines to compensate the frame
+        detected_thickness = np.percentile(dist_transform[dist_transform > 0], 50) * 2.0 if np.any(binary) else 0
+        
+        # To make the frame match the drawing, the frame needs: 
+        # (Target Width) + (Original Drawing Line Thickness)
+        frame_radius_px = radius_px + (detected_thickness / 2.0)
+        
+        logger.info(f"Target Radius: {radius_px}px | Compensation: {detected_thickness/2.0}px | Final Frame Radius: {frame_radius_px}px")
 
         # 4. Contour Detection
         contours, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
@@ -85,6 +90,7 @@ def generate_stl_from_image(image_source, settings):
                 poly = Polygon(shell=exterior, holes=interiors)
                 if not poly.is_valid: poly = make_valid(poly)
                 if not poly.is_empty:
+                    # Drawing walls get the standard radius (they already have 'detected_thickness')
                     internal_wall_polys.append(poly.buffer(radius_px, join_style=2, cap_style=2))
                     base_footprints.append(poly)
 
@@ -95,16 +101,15 @@ def generate_stl_from_image(image_source, settings):
         min_x, min_y = np.min(all_pts_np, axis=0)
         max_x, max_y = np.max(all_pts_np, axis=0)
         
-        # Adaptive thresholds based on detected thickness
-        side_thresh = drawing_thickness_px * 1.2
-        max_touch_span = drawing_thickness_px * 3.5 
+        # Thresholds for snapping
+        side_thresh = max(detected_thickness * 1.5, 10.0)
+        max_touch_span = max(detected_thickness * 4.0, 20.0)
 
         sides = {'bottom': [], 'top': [], 'left': [], 'right': []}
         bridge_lines = []
 
         for poly in internal_wall_polys:
             coords = list(poly.exterior.coords)
-            
             for side_name in ['bottom', 'top', 'left', 'right']:
                 current_segment = []
                 for pt in coords:
@@ -115,13 +120,11 @@ def generate_stl_from_image(image_source, settings):
                     elif side_name == 'left' and abs(px - min_x) <= side_thresh: hit = True
                     elif side_name == 'right' and abs(px - max_x) <= side_thresh: hit = True
                     
-                    if hit:
-                        current_segment.append(pt)
+                    if hit: current_segment.append(pt)
                     else:
                         if current_segment:
                             seg_np = np.array(current_segment)
-                            span = np.linalg.norm(seg_np[0] - seg_np[-1])
-                            if span < max_touch_span:
+                            if np.linalg.norm(seg_np[0] - seg_np[-1]) < max_touch_span:
                                 mid = seg_np[len(seg_np)//2]
                                 snap = Point(mid[0], min_y) if side_name == 'bottom' else \
                                        Point(mid[0], max_y) if side_name == 'top' else \
@@ -132,12 +135,12 @@ def generate_stl_from_image(image_source, settings):
         frame_segments = []
         for side_name, pairs in sides.items():
             if not pairs: continue
-            logger.info(f"Side {side_name.upper()}: {len(pairs)} dangling ends found.")
 
             for p, f_pt in pairs:
                 bridge = LineString([p, f_pt])
                 if bridge.length > 0.1:
-                    b_poly = bridge.buffer(radius_px, cap_style=2)
+                    # Bridges and Frames use the COMPENSATED radius
+                    b_poly = bridge.buffer(frame_radius_px, cap_style=2, join_style=2)
                     bridge_lines.append(b_poly)
                     base_footprints.append(b_poly)
 
@@ -145,7 +148,8 @@ def generate_stl_from_image(image_source, settings):
                 f_pts = [pair[1] for pair in pairs]
                 f_pts.sort(key=lambda p: p.x if side_name in ['bottom', 'top'] else p.y)
                 side_line = LineString([f_pts[0], f_pts[-1]])
-                s_poly = side_line.buffer(radius_px, cap_style=2)
+                # Frame uses the COMPENSATED radius to match the visual "drawing wall"
+                s_poly = side_line.buffer(frame_radius_px, cap_style=2, join_style=2)
                 frame_segments.append(s_poly)
                 base_footprints.append(s_poly)
 
@@ -161,11 +165,6 @@ def generate_stl_from_image(image_source, settings):
             objs = [raw_unified_base] if isinstance(raw_unified_base, Polygon) else raw_unified_base.geoms
             for obj in objs:
                 if not obj.is_empty: base_polys_to_extrude.append(Polygon(obj.exterior))
-        elif isinstance(raw_unified_base, GeometryCollection):
-            for geom in raw_unified_base.geoms:
-                if isinstance(geom, (Polygon, MultiPolygon)):
-                    sub_objs = [geom] if isinstance(geom, Polygon) else geom.geoms
-                    for so in sub_objs: base_polys_to_extrude.append(Polygon(so.exterior))
 
         # 8. Mesh Generation
         wall_meshes = []
