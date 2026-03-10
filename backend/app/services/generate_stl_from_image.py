@@ -7,7 +7,7 @@ import uuid
 import requests
 import cv2
 import logging
-from shapely.geometry import Polygon, MultiPolygon, LineString, Point, box
+from shapely.geometry import Polygon, MultiPolygon, LineString, Point, GeometryCollection
 from shapely.validation import make_valid
 from shapely.ops import unary_union
 
@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sand-backend")
 
 def generate_stl_from_image(image_source, settings):
-    logger.info("--- Side-Specific Framing with Debug Logging ---")
+    logger.info("--- Side-Specific Framing with Curve Filtering ---")
     
     try:
         # 1. Image Loading
@@ -63,7 +63,6 @@ def generate_stl_from_image(image_source, settings):
                 exterior = contours[i].reshape(-1, 2)
                 if len(exterior) < 3: continue
                 all_pts_list.extend(exterior)
-                base_footprints.append(Polygon(shell=exterior))
                 
                 interiors = []
                 child_idx = h[2]
@@ -78,6 +77,7 @@ def generate_stl_from_image(image_source, settings):
                 if not poly.is_valid: poly = make_valid(poly)
                 if not poly.is_empty:
                     internal_wall_polys.append(poly.buffer(radius_px, join_style=2, cap_style=2))
+                    base_footprints.append(poly)
 
         if not internal_wall_polys: return None
 
@@ -85,56 +85,61 @@ def generate_stl_from_image(image_source, settings):
         all_pts_np = np.array(all_pts_list)
         min_x, min_y = np.min(all_pts_np, axis=0)
         max_x, max_y = np.max(all_pts_np, axis=0)
-        logger.info(f"FRAME BOUNDS: X({min_x:.2f} to {max_x:.2f}), Y({min_y:.2f} to {max_y:.2f})")
         
-        # Increase threshold to full wall width (px) for better detection
-        side_thresh = radius_px * 2 
-        
+        # side_thresh is the detection zone
+        side_thresh = radius_px * 2.0 
+        # max_touch_span filters out grazing curves. 
+        # A clean "cut" should only touch the frame for roughly the width of the wall.
+        max_touch_span = radius_px * 5.0 
+
         sides = {'bottom': [], 'top': [], 'left': [], 'right': []}
         bridge_lines = []
 
         for poly in internal_wall_polys:
-            # Check every point of the polygon exterior to find closest interactions
             coords = list(poly.exterior.coords)
-            for pt_coord in coords:
-                px, py = pt_coord
-                p = Point(pt_coord)
-                
-                # Use elif to ensure a point only docks to ONE side (prevents diagonal bridges)
-                if abs(py - min_y) <= side_thresh: # Bottom
-                    sides['bottom'].append((p, Point(px, min_y)))
-                elif abs(py - max_y) <= side_thresh: # Top
-                    sides['top'].append((p, Point(px, max_y)))
-                elif abs(px - min_x) <= side_thresh: # Left
-                    sides['left'].append((p, Point(min_x, py)))
-                elif abs(px - max_x) <= side_thresh: # Right
-                    sides['right'].append((p, Point(max_x, py)))
+            
+            for side_name in ['bottom', 'top', 'left', 'right']:
+                current_segment = []
+                # Group consecutive points touching the frame side
+                for pt in coords:
+                    px, py = pt
+                    hit = False
+                    if side_name == 'bottom' and abs(py - min_y) <= side_thresh: hit = True
+                    elif side_name == 'top' and abs(py - max_y) <= side_thresh: hit = True
+                    elif side_name == 'left' and abs(px - min_x) <= side_thresh: hit = True
+                    elif side_name == 'right' and abs(px - max_x) <= side_thresh: hit = True
+                    
+                    if hit:
+                        current_segment.append(pt)
+                    else:
+                        if current_segment:
+                            # Check if the "touching" segment is short (a cut) or long (a grazing curve)
+                            seg_np = np.array(current_segment)
+                            span = np.linalg.norm(seg_np[0] - seg_np[-1])
+                            if span < max_touch_span:
+                                mid = seg_np[len(seg_np)//2]
+                                snap = Point(mid[0], min_y) if side_name == 'bottom' else \
+                                       Point(mid[0], max_y) if side_name == 'top' else \
+                                       Point(min_x, mid[1]) if side_name == 'left' else Point(max_x, mid[1])
+                                sides[side_name].append((Point(mid), snap))
+                            current_segment = []
 
         frame_segments = []
         for side_name, pairs in sides.items():
             if not pairs: continue
-            
-            logger.info(f"Side {side_name.upper()}: {len(pairs)} points docked.")
+            logger.info(f"Side {side_name.upper()}: {len(pairs)} dangling ends found.")
 
-            # 1. Create bridges
             for p, f_pt in pairs:
                 bridge = LineString([p, f_pt])
-                if bridge.length > 0.01:
+                if bridge.length > 0.1:
                     b_poly = bridge.buffer(radius_px, cap_style=2)
                     bridge_lines.append(b_poly)
                     base_footprints.append(b_poly)
 
-            # 2. Create connecting segment along the frame border
             if len(pairs) >= 2:
-                f_points = [pair[1] for pair in pairs]
-                if side_name in ['bottom', 'top']:
-                    f_points.sort(key=lambda p: p.x)
-                    side_line = LineString([f_points[0], f_points[-1]])
-                else:
-                    f_points.sort(key=lambda p: p.y)
-                    side_line = LineString([f_points[0], f_points[-1]])
-                
-                logger.info(f"Generated {side_name} frame segment: {side_line.length:.2f} px long")
+                f_pts = [pair[1] for pair in pairs]
+                f_pts.sort(key=lambda p: p.x if side_name in ['bottom', 'top'] else p.y)
+                side_line = LineString([f_pts[0], f_pts[-1]])
                 s_poly = side_line.buffer(radius_px, cap_style=2)
                 frame_segments.append(s_poly)
                 base_footprints.append(s_poly)
@@ -142,31 +147,32 @@ def generate_stl_from_image(image_source, settings):
         # 6. Final Wall Geometry
         all_walls_geom = unary_union(internal_wall_polys + bridge_lines + frame_segments)
 
-        # 7. Support Plate
+        # 7. Support Plate (Fixed GeometryCollection Error)
         raw_unified_base = unary_union(base_footprints)
         if not raw_unified_base.is_valid: raw_unified_base = make_valid(raw_unified_base)
         
         base_polys_to_extrude = []
-        if isinstance(raw_unified_base, MultiPolygon):
-            for p in raw_unified_base.geoms:
-                base_polys_to_extrude.append(Polygon(p.exterior))
-        else:
-            base_polys_to_extrude.append(Polygon(raw_unified_base.exterior))
+        # Safely extract only polygons from the union result
+        if isinstance(raw_unified_base, (Polygon, MultiPolygon)):
+            objs = [raw_unified_base] if isinstance(raw_unified_base, Polygon) else raw_unified_base.geoms
+            for obj in objs:
+                if not obj.is_empty: base_polys_to_extrude.append(Polygon(obj.exterior))
+        elif isinstance(raw_unified_base, GeometryCollection):
+            for geom in raw_unified_base.geoms:
+                if isinstance(geom, (Polygon, MultiPolygon)):
+                    sub_objs = [geom] if isinstance(geom, Polygon) else geom.geoms
+                    for so in sub_objs: base_polys_to_extrude.append(Polygon(so.exterior))
 
         # 8. Mesh Generation
         wall_meshes = []
-        if hasattr(all_walls_geom, 'geoms'):
-            geoms_list = list(all_walls_geom.geoms)
-        else:
-            geoms_list = [all_walls_geom]
-
+        geoms_list = all_walls_geom.geoms if hasattr(all_walls_geom, 'geoms') else [all_walls_geom]
         for gw in geoms_list:
-            if gw.area > 0.1:
+            if isinstance(gw, Polygon) and gw.area > 0.1:
                 wall_meshes.append(trimesh.creation.extrude_polygon(gw, height=wall_h))
         
         combined_walls = trimesh.util.concatenate(wall_meshes)
 
-        if include_base:
+        if include_base and base_polys_to_extrude:
             base_meshes = [trimesh.creation.extrude_polygon(bp, height=base_h) for bp in base_polys_to_extrude if bp.area > 0.1]
             combined_base = trimesh.util.concatenate(base_meshes)
             combined_base.apply_translation([0, 0, -base_h])
@@ -177,17 +183,14 @@ def generate_stl_from_image(image_source, settings):
         # 9. Transformation
         xy_scale = pixel_to_mm * scale_percent
         final_mesh.apply_scale([xy_scale, xy_scale, 1.0])
-        c = final_mesh.centroid
-        final_mesh.apply_translation([-c[0], -c[1], 0])
-        z_min = final_mesh.bounds[0][2]
-        final_mesh.apply_translation([0, 0, -z_min])
+        final_mesh.apply_translation(-final_mesh.centroid)
+        final_mesh.apply_translation([0, 0, -final_mesh.bounds[0][2]])
 
         # 10. Export
         output_dir = "/tmp/sand_art_output"
         os.makedirs(output_dir, exist_ok=True)
         temp_path = os.path.join(output_dir, f"sand_art_{uuid.uuid4().hex[:8]}.stl")
         final_mesh.export(temp_path)
-        
         return temp_path
 
     except Exception as e:
