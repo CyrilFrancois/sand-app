@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("sand-backend")
 
 def generate_stl_from_image(image_source, settings):
-    logger.info("--- Side-Specific Framing with Curve Filtering ---")
+    logger.info("--- Side-Specific Framing with Adaptive Thickness Detection ---")
     
     try:
         # 1. Image Loading
@@ -49,6 +49,15 @@ def generate_stl_from_image(image_source, settings):
         img = img_raw.resize((new_w, new_h), Image.Resampling.LANCZOS)
         img_np = np.array(img)
         binary = np.where(img_np < 140, 255, 0).astype(np.uint8)
+
+        # --- ADAPTIVE THICKNESS DETECTION ---
+        # Distance transform finds the distance to the closest zero pixel for each pixel
+        dist_transform = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+        # The 'thickness' is twice the typical distance from the center to the edge
+        detected_thickness = np.percentile(dist_transform[dist_transform > 0], 90) * 2.0
+        # Fallback to a safe minimum if the image is empty
+        drawing_thickness_px = max(detected_thickness, 4.0)
+        logger.info(f"Detected drawing line thickness: {drawing_thickness_px:.2f}px")
 
         # 4. Contour Detection
         contours, hierarchy = cv2.findContours(binary, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
@@ -86,11 +95,9 @@ def generate_stl_from_image(image_source, settings):
         min_x, min_y = np.min(all_pts_np, axis=0)
         max_x, max_y = np.max(all_pts_np, axis=0)
         
-        # side_thresh is the detection zone
-        side_thresh = radius_px * 2.0 
-        # max_touch_span filters out grazing curves. 
-        # A clean "cut" should only touch the frame for roughly the width of the wall.
-        max_touch_span = radius_px * 5.0 
+        # Adaptive thresholds based on detected thickness
+        side_thresh = drawing_thickness_px * 1.2
+        max_touch_span = drawing_thickness_px * 3.5 
 
         sides = {'bottom': [], 'top': [], 'left': [], 'right': []}
         bridge_lines = []
@@ -100,7 +107,6 @@ def generate_stl_from_image(image_source, settings):
             
             for side_name in ['bottom', 'top', 'left', 'right']:
                 current_segment = []
-                # Group consecutive points touching the frame side
                 for pt in coords:
                     px, py = pt
                     hit = False
@@ -113,7 +119,6 @@ def generate_stl_from_image(image_source, settings):
                         current_segment.append(pt)
                     else:
                         if current_segment:
-                            # Check if the "touching" segment is short (a cut) or long (a grazing curve)
                             seg_np = np.array(current_segment)
                             span = np.linalg.norm(seg_np[0] - seg_np[-1])
                             if span < max_touch_span:
@@ -147,12 +152,11 @@ def generate_stl_from_image(image_source, settings):
         # 6. Final Wall Geometry
         all_walls_geom = unary_union(internal_wall_polys + bridge_lines + frame_segments)
 
-        # 7. Support Plate (Fixed GeometryCollection Error)
+        # 7. Support Plate
         raw_unified_base = unary_union(base_footprints)
         if not raw_unified_base.is_valid: raw_unified_base = make_valid(raw_unified_base)
         
         base_polys_to_extrude = []
-        # Safely extract only polygons from the union result
         if isinstance(raw_unified_base, (Polygon, MultiPolygon)):
             objs = [raw_unified_base] if isinstance(raw_unified_base, Polygon) else raw_unified_base.geoms
             for obj in objs:
