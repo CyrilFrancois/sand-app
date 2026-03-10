@@ -136,13 +136,13 @@ def generate_stl_from_image(image_source, settings):
         for side_name, pairs in sides.items():
             if not pairs: continue
 
-            for p, f_pt in pairs:
-                bridge = LineString([p, f_pt])
-                if bridge.length > 0.1:
-                    # Bridges and Frames use the COMPENSATED radius
-                    b_poly = bridge.buffer(frame_radius_px, cap_style=2, join_style=2)
-                    bridge_lines.append(b_poly)
-                    base_footprints.append(b_poly)
+            #for p, f_pt in pairs:
+            #    bridge = LineString([p, f_pt])
+            #    if bridge.length > 0.1:
+            #        # Bridges and Frames use the COMPENSATED radius
+            #        b_poly = bridge.buffer(frame_radius_px, cap_style=2, join_style=2)
+            #        bridge_lines.append(b_poly)
+            #        base_footprints.append(b_poly)
 
             if len(pairs) >= 2:
                 f_pts = [pair[1] for pair in pairs]
