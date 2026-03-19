@@ -1,4 +1,4 @@
-# ColoringBook 3D Generator
+# Picture to STL Extrudation
 
 Convert photos into printable coloring-book style 3D STL files.
 
