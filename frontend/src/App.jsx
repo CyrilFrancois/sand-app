@@ -13,7 +13,7 @@ export default function App() {
 
   const [modelSettings, setModelSettings] = useState({
     wallHeight: 3.0,
-    wallThickness: 0.12,
+    wallThickness: 0.4,
     basePlate: true,
     basePlateThickness: 0.12,
     scalePercent: 100, 
