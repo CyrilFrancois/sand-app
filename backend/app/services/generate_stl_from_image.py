@@ -122,20 +122,31 @@ def generate_stl_from_image(image_source, settings):
         # 6. Combine Geometry
         all_walls_geom = unary_union(internal_wall_polys + frame_segments)
 
-        # 7. Support Plate (FOLLOW CURVES)
+        # 7. Support Plate (Dynamic solidification based on wall thickness)
         base_meshes = []
         if include_base:
             footprint_parts = []
+            # Access the combined wall geometry (internal walls + frame)
             geoms_to_process = all_walls_geom.geoms if isinstance(all_walls_geom, MultiPolygon) else [all_walls_geom]
+            
+            # Use a small epsilon buffer (50% of wall thickness) to bridge precision gaps
+            epsilon = target_radius_px * 0.5
+            
             for g in geoms_to_process:
                 if isinstance(g, Polygon) and not g.is_empty:
-                    footprint_parts.append(Polygon(g.exterior))
+                    # Dilate slightly, take the boundary, and fill it
+                    # This ensures thin 0.3mm walls are treated as solid footprints
+                    filled = g.buffer(epsilon).exterior
+                    if filled:
+                        footprint_parts.append(Polygon(filled))
             
-            exact_support_poly = unary_union(footprint_parts)
+            # Merge all parts and shrink back by the epsilon to match wall edges perfectly
+            exact_support_poly = unary_union(footprint_parts).buffer(-epsilon)
+            
             if not exact_support_poly.is_empty:
                 base_polys = exact_support_poly.geoms if isinstance(exact_support_poly, MultiPolygon) else [exact_support_poly]
                 for bp in base_polys:
-                    if bp.area > 0.1:
+                    if bp.area > 0.01: # Lowered threshold for very thin details
                         try:
                             base_meshes.append(trimesh.creation.extrude_polygon(bp, height=base_h))
                         except Exception: continue
