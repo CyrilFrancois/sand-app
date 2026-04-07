@@ -43,7 +43,8 @@ def generate_outline_images(image_bytes, variants_count):
 
     prompt = ("""
 Convert this image into a coloring-book style outline drawing designed for 3D printing. 
-The subject may be a person (portrait) or an object/landscape (e.g., vase, mountain, animal).
+The subject may be a person (portrait) or an object/landscape (e.g., vase, mountain, animal) or abstract. 
+Don't had any features. Keep the original drawning/composition. Keep all the lines/patterns/features, without transformation. Including inner detaillines.
 
 Rules:
 - NO SOLID BLACK AREAS: Every part of the drawing must be an empty zone defined only by outlines. Do not fill in eyes, hair, or shadows with solid black.
@@ -55,6 +56,7 @@ Rules:
 
 Output goal:
 A clean, printable line drawing consisting strictly of empty, outlined "cells" that can be extruded into walls for a sand-art frame.
+Don't had any features. Keep the original drawning/composition.
 """)
 
     try:
