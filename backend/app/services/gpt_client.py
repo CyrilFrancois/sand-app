@@ -49,7 +49,7 @@ Don't had any features. Keep the original drawning/composition. Keep all the lin
 Rules:
 - NO SOLID BLACK AREAS: Every part of the drawing must be an empty zone defined only by outlines. Do not fill in eyes, hair, or shadows with solid black.
 - SUBJECT FLEXIBILITY: If the subject is a portrait, outline the face and hair. If the subject is an object or landscape, outline only the primary structural shapes (e.g., the silhouette of the mountain or the body of the vase).
-- THICK & CONTINUOUS: Use thick, consistent black lines. Every line must be strong enough to be extruded.
+- THICK & CONTINUOUS: Use thick, consistent black lines. Every line must be strong enough to be extruded. Remove the smallest lines if it parasites the drawing.
 - CLOSED LOOPS: Lines must be closed wherever possible to create distinct "wells" for sand.
 - ZERO DETAIL: No shading, gradients, hatching, or texture. Remove wrinkles, eyelashes, individual hair strands.
 - PURE CONTRAST: Use only black lines on a pure white background. Remove all background elements that are not part of the main subject.
