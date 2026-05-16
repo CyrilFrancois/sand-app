@@ -44,19 +44,20 @@ def generate_outline_images(image_bytes, variants_count):
     prompt = ("""
 Convert this image into a coloring-book style outline drawing designed for 3D printing. 
 The subject may be a person (portrait) or an object/landscape (e.g., vase, mountain, animal) or abstract. 
-Don't had any features. Keep the original drawning/composition. Keep all the lines/patterns/features, without transformation. Including inner detaillines.
+Don't had any features. Keep the original drawning/composition. Keep all the lines/patterns/features, without transformation. Including inner detailed lines. Keep as much details as you can from the images but add nothing
 
 Rules:
 - NO SOLID BLACK AREAS: Every part of the drawing must be an empty zone defined only by outlines. Do not fill in eyes, hair, or shadows with solid black.
 - SUBJECT FLEXIBILITY: If the subject is a portrait, outline the face and hair. If the subject is an object or landscape, outline only the primary structural shapes (e.g., the silhouette of the mountain or the body of the vase).
 - THICK & CONTINUOUS: Use thick, consistent black lines. Every line must be strong enough to be extruded.
 - CLOSED LOOPS: Lines must be closed wherever possible to create distinct "wells" for sand.
-- ZERO DETAIL: No shading, gradients, hatching, or texture. Remove wrinkles, eyelashes, individual hair strands, or fine patterns.
+- ZERO DETAIL: No shading, gradients, hatching, or texture. Remove wrinkles, eyelashes, individual hair strands.
 - PURE CONTRAST: Use only black lines on a pure white background. Remove all background elements that are not part of the main subject.
+- If there are eyes, draw them, same for the other pictures features
 
 Output goal:
 A clean, printable line drawing consisting strictly of empty, outlined "cells" that can be extruded into walls for a sand-art frame.
-Don't had any features. Keep the original drawning/composition.
+Don't had any features. Keep the original drawning/composition. Keep as much details as you can.
 """)
 
     try:
